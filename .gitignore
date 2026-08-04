@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+testScript.txt
+
+# tool output / scratch
+*.mp4
+*.webm
+*.mp3
+/tmp-*/
+/out/

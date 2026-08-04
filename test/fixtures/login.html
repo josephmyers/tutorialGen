@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in</title>
+  </head>
+  <body>
+    <h1>Acme Portal</h1>
+
+    <button id="login" type="button">Login</button>
+
+    <form>
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" placeholder="Your username" />
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="Your password" />
+
+      <button type="submit">Sign In</button>
+    </form>
+
+    <a href="#help" aria-label="Get help">Need help?</a>
+
+    <!-- Two visible elements sharing the same accessible name, for the ambiguity test. -->
+    <button type="button">Duplicate</button>
+    <button type="button">Duplicate</button>
+
+    <button type="button" hidden>Hidden Action</button>
+
+    <p>Some descriptive body text that appears only once.</p>
+  </body>
+</html>
