@@ -45,7 +45,7 @@ describe("priority chain", () => {
     expect(await describeMatch("Sign In")).toBe("button");
   });
 
-  it("falls back to aria-label", async () => {
+  it("prefers aria-label over the element's own text", async () => {
     expect(await describeMatch("Get help")).toBe("a");
   });
 
