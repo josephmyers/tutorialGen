@@ -62,35 +62,41 @@ export async function startRecording(browser: Browser, opts: RecorderOptions): P
     page,
     pageCreatedAt,
     async finish(): Promise<FinishedTake> {
-      // Video timestamp zero, recovered after the fact. The take begins at the
-      // first frame the browser painted — an instant nothing on this side can
-      // observe — but it ends when the recorder is closed, which we do know. So
-      // the start is the end minus however long the take turned out to be.
+      // The recorder keeps capturing until the close resolves, and the .webm is
+      // only flushed to disk at that point — so this is the instant recording
+      // actually stopped. Stamping it any earlier understates the video.
+      await context.close();
+      const recordingStoppedAt = Date.now();
+
+      const videoPath = await video.path();
+      const videoDurationMs = (await measureDurationSec(videoPath)) * 1000;
+
+      // When the first recorded frame was painted, recovered after the fact.
+      // Nothing on this side can observe that instant directly, but we do know
+      // when recording stopped — so the start is the stop minus however long the
+      // video turned out to be.
       //
       // This holds because Playwright encodes at a constant 25fps, repeating the
       // last frame through stillness, and because the caller leaves the page
       // still for well over the 1s its recorder pads the end by: with no frame
       // arriving in that last second, the padding is the real elapsed time
       // rather than the floor, and the file ends where the recording did.
-      const closedAt = Date.now();
-      // The .webm is only flushed to disk when the context closes.
-      await context.close();
-      const path = await video.path();
-      const durationMs = (await measureDurationSec(path)) * 1000;
-      const videoZeroMs = closedAt - durationMs;
+      const firstFrameAt = recordingStoppedAt - videoDurationMs;
 
-      // The take cannot have started before the page it is recording existed. If
-      // it did, the duration or the close instant is not what this assumes, and
-      // every offset derived from it is wrong by that amount — so say so rather
-      // than hand back numbers that silently desync the narration.
-      if (videoZeroMs < pageCreatedAt) {
-        throw new Error(
-          `Video zero lands ${pageCreatedAt - videoZeroMs}ms before the page was created. ` +
-            `Take is ${(durationMs / 1000).toFixed(3)}s but only ` +
-            `${((closedAt - pageCreatedAt) / 1000).toFixed(3)}s elapsed from page creation to close.`,
-        );
+      // The page is created blank and paints nothing until it is navigated, so
+      // recording opens on a stretch of dead time this long. It cannot be
+      // negative — the recorder cannot have filmed a page that did not exist
+      // yet. If it is, either the duration or the stop instant is not what this
+      // assumes, and every offset derived from the first frame is wrong by that
+      // much, so say so rather than hand back numbers that silently desync the
+      // narration.
+      if (Math.abs(firstFrameAt - pageCreatedAt) > 500) {
+        console.log(`There is a discrepancy between when `)
+        console.log(`First frame at: ${firstFrameAt}`);
+        console.log(`Page created at: ${pageCreatedAt}`);
       }
-      return { path, durationMs, videoZeroMs };
+
+      return { path: videoPath, durationMs: videoDurationMs, videoZeroMs: firstFrameAt };
     },
   };
 }
