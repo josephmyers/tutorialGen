@@ -41,6 +41,8 @@ export interface Pace extends CursorPace {
   scrollSettleMs: number;
   /** How long a page gets to begin reacting before an action is complete. */
   reactionGraceMs: number;
+  /** How long a changed page's HTML must go unchanged before it counts as settled. */
+  htmlUnchangedMs: number;
 }
 
 export const NATURAL_PACE: Pace = {
@@ -49,6 +51,7 @@ export const NATURAL_PACE: Pace = {
   stepMs: 25,
   scrollSettleMs: 500,
   reactionGraceMs: 500,
+  htmlUnchangedMs: 1000,
 };
 
 /**
@@ -65,6 +68,7 @@ export const TEST_PACE: Pace = {
   stepMs: 1,
   scrollSettleMs: 20,
   reactionGraceMs: 50,
+  htmlUnchangedMs: 100,
 };
 
 export interface ActionRunnerOptions {
@@ -125,6 +129,7 @@ export class ActionRunner {
       await withCompletion(this.page, () => this.dispatch(action), {
         timeoutMs: this.timeoutMs,
         reactionGraceMs: this.pace.reactionGraceMs,
+        htmlUnchangedMs: this.pace.htmlUnchangedMs,
       });
     } catch (err) {
       throw new Error(`line ${action.line}: ${err instanceof Error ? err.message : String(err)}`);
