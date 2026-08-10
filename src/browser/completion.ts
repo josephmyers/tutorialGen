@@ -1,99 +1,148 @@
-import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { Page } from "playwright";
+import { utils } from "playwright-core/lib/coreBundle";
+import type { Page, Request } from "playwright";
 
-/** How often the settle loop re-reads the page. */
-const POLL_MS = 200;
+const { getComparator } = utils;
+
+const POLL_MS = 100;
 
 export interface CompletionOptions {
-  /** Budget for a navigation, once one has started. */
   timeoutMs: number;
-  /** How long the page gets to *begin* navigating before we call it done. */
+  minSettledTimeMs: number;
   reactionGraceMs: number;
-  /** How long the page must go unchanged before a changed page counts as settled. */
-  htmlUnchangedMs: number;
 }
 
 /**
  * Run an action and block until the browser is genuinely done with it (spec §4).
  *
- * Playwright's own auto-waiting already gates an ordinary action, so nothing is
- * added for one that stays on the page. Navigation is the gap: `load` fires on
- * whichever document commits first, which on a site with a loading screen or an
- * entry animation is not the page the viewer is meant to see. So when the URL
- * changes, wait for the page to hold still instead.
+ * Every action waits on the same thing: the page holding still. Playwright's
+ * auto-waiting gates the action itself, and `load` fires on whichever document
+ * commits first — on a site with a loading screen or an entry animation that is
+ * not the page the viewer is meant to see. Watching the pixels covers both, and
+ * covers the in-page cases (a menu opening, a lazy image arriving) that a
+ * navigation check never saw at all.
+ *
+ * Two phases, both `holdStill` with different parameters:
+ *
+ * 1. Every action waits for two consecutive frames to match — the moment motion
+ *    stops, whether that took one poll or fifty. An action that provoked nothing
+ *    pays the reaction grace and leaves.
+ * 2. A navigation additionally waits for a `minSettledTimeMs` streak of matching
+ *    frames. A new document arrives in stages — first paint, webfonts, images,
+ *    an entry animation — and momentary stillness between two of those stages is
+ *    not arrival. Nothing else is charged for that, which is the point: the long
+ *    settle used to fall on any action whose reaction was animated rather than
+ *    instant.
+ *
+ * Phase 1 cannot return before `reactionGraceMs` is up. That gate is what makes
+ * the URL below a reading taken after the page has had its chance to react, and
+ * it keeps an action from being called complete before anything could have
+ * happened at all.
  */
 export async function withCompletion<T>(
   page: Page,
   action: () => Promise<T>,
-  { timeoutMs, reactionGraceMs, htmlUnchangedMs }: CompletionOptions,
+  { timeoutMs, minSettledTimeMs, reactionGraceMs }: CompletionOptions,
 ): Promise<T> {
-  const from = page.url();
-  const result = await action();
+  const deadline = Date.now() + timeoutMs;
+  const navigations = watchNavigations(page);
 
-  // A click's consequences are asynchronous — the handler runs, the request goes
-  // out — so nothing has happened yet at the instant it returns. This is the
-  // window for a navigation to *start*, not a budget for the navigation itself,
-  // which is why the wait stops at the commit.
   try {
-    await page.waitForURL((url) => url.href !== from, {
-      timeout: reactionGraceMs,
-      waitUntil: "commit",
-    });
-  } catch {
-    if (page.url() === from) return result; // Went nowhere; the action is done.
-  }
+    const urlBefore = page.url();
+    const result = await action();
 
-  await page.waitForLoadState("load", { timeout: timeoutMs }).catch(() => {});
-  await settle(page, timeoutMs, htmlUnchangedMs);
-  return result;
+    await holdStill(page, {
+      deadline,
+      timeoutMs,
+      stillForMs: 0,
+      notBefore: Date.now() + reactionGraceMs,
+      navigations,
+    });
+
+    if (page.url() !== urlBefore) {
+      await holdStill(page, {
+        deadline,
+        timeoutMs,
+        stillForMs: minSettledTimeMs,
+        notBefore: 0,
+        navigations,
+      });
+    }
+
+    return result;
+  } finally {
+    navigations.stop();
+  }
 }
 
-/** Poll until the page stops changing, or give up and say so. */
-async function settle(page: Page, timeoutMs: number, htmlUnchangedMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  let previous: string | undefined;
-  let lastChange = Date.now();
-
-  for (;;) {
-    const current = await snapshot(page, deadline - Date.now());
-    if (current === undefined || current !== previous) lastChange = Date.now();
-    previous = current;
-
-    if (Date.now() - lastChange >= htmlUnchangedMs) return;
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `page never held still for ${htmlUnchangedMs}ms within ${timeoutMs}ms at ${page.url()}`,
-      );
-    }
-    await sleep(POLL_MS);
-  }
+interface HoldOptions {
+  /** The caller's deadline, shared by both phases so neither restarts the clock. */
+  deadline: number;
+  timeoutMs: number;
+  /** 0 lets the first matching pair win; higher demands an unbroken streak. */
+  stillForMs: number;
+  /** The earliest instant the loop may return, whatever the pixels say. */
+  notBefore: number;
+  navigations: NavWatch;
 }
 
 /**
- * The page as one comparable string.
- *
- * Pixels, not markup. A CSS animation — the progress bar on a loading screen is
- * the case that matters — never rewrites the DOM: the keyframes drive computed
- * style, so serialized HTML is byte-identical from frame to frame and a page
- * that is visibly still moving reads as settled. A screenshot measures what the
- * viewer actually sees, which also covers canvas, video, and shadow DOM.
- *
- * A page that never stops moving therefore never settles, and fails on the
- * caller's deadline. That is the intended outcome, not a shortcoming: the
- * recording of such a page has no correct moment to move on from.
- *
- * The URL rides along so that a follow-on navigation to a visually identical
- * page still counts as a change. `undefined` means the page could not be read —
- * a document being torn down mid-navigation is the ordinary way that happens,
- * and it is a change rather than a failure. It also makes the next successful
- * read differ, since the page that one belongs to was never compared.
+ * Poll until the page stops changing, or give up and say so.
  */
-async function snapshot(page: Page, timeout: number): Promise<string | undefined> {
-  try {
-    const pixels = await page.screenshot({ timeout: Math.max(timeout, 0) });
-    return `${page.url()}\n${createHash("sha1").update(pixels).digest("hex")}`;
-  } catch {
-    return undefined;
+async function holdStill(page: Page, o: HoldOptions): Promise<void> {
+  const comparator = getComparator("image/png");
+  let previous = await page.screenshot();
+  let lastChange = Date.now();
+
+  for (;;) {
+    await sleep(POLL_MS);
+
+    const current = await page.screenshot();
+    const changed =
+      o.navigations.pending > 0 ||
+      comparator(previous, current, { maxDiffPixelRatio: 0 }) !== null;
+    previous = current;
+
+    const now = Date.now();
+    if (changed) lastChange = now;
+    else if (now - lastChange >= o.stillForMs && now >= o.notBefore) return;
+
+    if (now >= o.deadline) {
+      throw new Error(
+        `page never held still for ${o.stillForMs}ms within ${o.timeoutMs}ms at ${page.url()}`,
+      );
+    }
   }
+}
+
+interface NavWatch {
+  /** How many main-frame navigations have been issued but not yet resolved. */
+  readonly pending: number;
+  stop(): void;
+}
+
+function watchNavigations(page: Page): NavWatch {
+  const inFlight = new Set<Request>();
+
+  const started = (request: Request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      inFlight.add(request);
+    }
+  };
+  const ended = (request: Request) => inFlight.delete(request);
+
+  page.on("request", started);
+  page.on("requestfinished", ended);
+  page.on("requestfailed", ended);
+
+  return {
+    get pending() {
+      return inFlight.size;
+    },
+    stop() {
+      page.off("request", started);
+      page.off("requestfinished", ended);
+      page.off("requestfailed", ended);
+    },
+  };
 }

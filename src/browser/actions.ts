@@ -37,21 +37,17 @@ export interface Pace extends CursorPace {
   typeDelayMs: number;
   /** Pause between wheel chunks and drag steps. */
   stepMs: number;
-  /** Time for a smooth `scroll to` to finish before the next segment starts. */
-  scrollSettleMs: number;
-  /** How long a page gets to begin reacting before an action is complete. */
   reactionGraceMs: number;
-  /** How long a changed page's HTML must go unchanged before it counts as settled. */
-  htmlUnchangedMs: number;
+  /** How long the navigation must go unchanged before an action counts as complete. */
+  minSettledTimeMs: number;
 }
 
 export const NATURAL_PACE: Pace = {
   ...NATURAL_CURSOR,
   typeDelayMs: 45,
   stepMs: 25,
-  scrollSettleMs: 500,
   reactionGraceMs: 500,
-  htmlUnchangedMs: 1000,
+  minSettledTimeMs: 2000,
 };
 
 /**
@@ -66,9 +62,8 @@ export const TEST_PACE: Pace = {
   hopMs: 20,
   typeDelayMs: 1,
   stepMs: 1,
-  scrollSettleMs: 20,
   reactionGraceMs: 50,
-  htmlUnchangedMs: 100,
+  minSettledTimeMs: 100,
 };
 
 export interface ActionRunnerOptions {
@@ -129,7 +124,7 @@ export class ActionRunner {
       await withCompletion(this.page, () => this.dispatch(action), {
         timeoutMs: this.timeoutMs,
         reactionGraceMs: this.pace.reactionGraceMs,
-        htmlUnchangedMs: this.pace.htmlUnchangedMs,
+        minSettledTimeMs: this.pace.minSettledTimeMs
       });
     } catch (err) {
       throw new Error(`line ${action.line}: ${err instanceof Error ? err.message : String(err)}`);
@@ -152,7 +147,7 @@ export class ActionRunner {
         await locator.evaluate((el) => {
           el.scrollIntoView({ behavior: "smooth", block: "center" });
         });
-        await sleep(this.pace.scrollSettleMs);
+        await sleep(this.pace.reactionGraceMs);
         return;
       }
 
