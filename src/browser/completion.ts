@@ -51,13 +51,7 @@ export async function withCompletion<T>(
     const urlBefore = page.url();
     const result = await action();
 
-    await holdStill(page, {
-      deadline,
-      timeoutMs,
-      stillForMs: 0,
-      notBefore: Date.now() + reactionGraceMs,
-      navigations,
-    });
+    await sleep(reactionGraceMs);
 
     if (page.url() !== urlBefore) {
       await holdStill(page, {
