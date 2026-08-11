@@ -15,12 +15,11 @@ const SHIFT_TOLERANCE_PX = 2;
 /**
  * The pointer commands, as the pair they actually differ by: which Locator
  * method performs the actionability check, and which mouse method dispatches.
- * The three cases are otherwise identical.
  */
 const POINTER_COMMANDS = {
   click: { trial: "click", dispatch: "click" },
   doubleclick: { trial: "dblclick", dispatch: "dblclick" },
-  hover: { trial: "hover", dispatch: "move" },
+  hover: { trial: null, dispatch: "move" },
 } as const;
 
 type PointerCommand = keyof typeof POINTER_COMMANDS;
@@ -184,13 +183,12 @@ export class ActionRunner {
   /**
    * Bring the cursor to an element and return the exact point to dispatch at.
    *
-   * Order matters here. A trial run is not passive — it moves the virtual mouse
-   * onto the element, so the page sees `pointerover`/`mouseover` the moment it
-   * runs. Doing it first lit elements up while the cursor was still travelling
-   * towards them. So the element is scrolled on screen and measured with calls
-   * that make no pointer contact, the cursor travels, and only then does the
-   * actionability check run — by which time the pointer arriving is exactly
-   * what the viewer is watching happen.
+   * Order matters here. Nothing may reach the element until the drawn cursor
+   * has arrived, or the page lights up while the cursor is still travelling
+   * towards it. So the element is scrolled on screen and measured with calls
+   * that make no pointer contact, the cursor travels, and only then does
+   * anything the page can observe run — by which time the pointer arriving is
+   * exactly what the viewer is watching happen.
    */
   private async approach(
     target: string,
@@ -206,11 +204,10 @@ export class ActionRunner {
     await this.cursor.moveTo(aim.x, aim.y);
 
     // Playwright's own actionability wait: attached, visible, stable,
-    // receives-events, and enabled for the two click variants. Kept distinct
-    // because hover does not require the element to be enabled. This is the
-    // only thing checking any of that — page.mouse.* checks nothing — so a
-    // disabled or covered target fails loudly here instead of silently later.
-    await locator[trial]({ trial: true, timeout: this.timeoutMs });
+    // receives-events, enabled. This is the only thing checking any of that —
+    // page.mouse.* checks nothing — so a disabled or covered click target fails
+    // loudly here instead of silently later.
+    if (trial) await locator[trial]({ trial: true, timeout: this.timeoutMs });
 
     // The page can shift while the cursor travels; re-aim rather than click air.
     const settled = await this.centerOf(locator, target);
