@@ -21,6 +21,7 @@ export interface PipelineConfig {
   width: number;
   height: number;
   actionTimeoutMs: number;
+  waitForInitialLoad: boolean;
   keepTemp: boolean;
   headed: boolean;
 }
@@ -156,7 +157,11 @@ async function recordTake(
     });
 
     log(`Opening ${config.url}...`);
-    await page.goto(config.url, { waitUntil: "load" });
+    if (config.waitForInitialLoad) {
+      await runner.open(config.url);
+    } else {
+      await page.goto(config.url, { waitUntil: "load" });
+    }
     const loadedAt = Date.now();
 
     // Marks are absolute wall-clock instants: video timestamp zero is not

@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { BrowserContext, Locator, Page } from "playwright";
 import type { ActionSegment } from "../parser/types.js";
-import { withCompletion } from "./completion.js";
+import { withCompletion, type CompletionOptions } from "./completion.js";
 import { Cursor, NATURAL_CURSOR, type CursorPace, type Point } from "./cursor.js";
 import { resolveTarget } from "./resolver.js";
 
@@ -117,17 +117,30 @@ export class ActionRunner {
     await this.cursor.place(x, y);
   }
 
+  /** Open the first document and return once it has settled. */
+  async open(url: string): Promise<void> {
+    await withCompletion(
+      this.page,
+      () => this.page.goto(url, { waitUntil: "load" }),
+      this.completion,
+    );
+  }
+
   /** Run one action to completion, failing with its script line number. */
   async run(action: ActionSegment): Promise<void> {
     try {
-      await withCompletion(this.page, () => this.dispatch(action), {
-        timeoutMs: this.timeoutMs,
-        reactionGraceMs: this.pace.reactionGraceMs,
-        minSettledTimeMs: this.pace.minSettledTimeMs
-      });
+      await withCompletion(this.page, () => this.dispatch(action), this.completion);
     } catch (err) {
       throw new Error(`line ${action.line}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  private get completion(): CompletionOptions {
+    return {
+      timeoutMs: this.timeoutMs,
+      reactionGraceMs: this.pace.reactionGraceMs,
+      minSettledTimeMs: this.pace.minSettledTimeMs,
+    };
   }
 
   private async dispatch(action: ActionSegment): Promise<void> {
