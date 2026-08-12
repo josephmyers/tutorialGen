@@ -3,6 +3,7 @@ import type { BrowserContext, Locator, Page } from "playwright";
 import type { ActionSegment } from "../parser/types.js";
 import { withCompletion, type CompletionOptions } from "./completion.js";
 import { Cursor, NATURAL_CURSOR, type CursorPace, type Point } from "./cursor.js";
+import { showPopup } from "./popup.js";
 import { resolveTarget } from "./resolver.js";
 
 /** A wheel scroll is chunked so it reads as motion, not a jump. */
@@ -167,6 +168,7 @@ export class ActionRunner {
         // Typing goes to whatever a preceding click focused, so the cursor stays.
         if (action.shortcut) {
           await this.page.keyboard.press(action.shortcut);
+          await showPopup(this.page, action.shortcut);
         } else {
           await this.page.keyboard.type(action.target, { delay: this.pace.typeDelayMs });
         }
