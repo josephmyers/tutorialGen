@@ -46,7 +46,7 @@ export const COMMANDS: readonly CommandSpec[] = [
     synonyms: ["enter", "input", "write", "hit"],
     targetKind: "text",
     targetHelp: "quoted text",
-    note: "Types into whichever field a preceding click focused. A target like \"Ctrl+C\" is sent as a keyboard shortcut instead.",
+    note: "Types into whichever field a preceding click focused. A target like \"Control+C\" is sent as a keyboard shortcut instead.",
   },
   {
     command: "hover",
@@ -84,7 +84,6 @@ export const COMMANDS: readonly CommandSpec[] = [
     synonyms: ["pause"],
     targetKind: "amount",
     targetHelp: "a duration in milliseconds",
-    note: "Holds the page still, doing nothing, for the given time.",
   },
 ];
 
