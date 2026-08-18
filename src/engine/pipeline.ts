@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -66,7 +66,7 @@ export async function runPipeline(
       `(${segments.length - narrationCount} actions, ${narrationCount} narration).`,
   );
 
-  const runDir = path.join(os.tmpdir(), `tutorialgen-${Date.now()}`);
+  const runDir = await mkdtemp(path.join(os.tmpdir(), "tutorialgen-"));
   const videoDir = path.join(runDir, "video");
   await mkdir(videoDir, { recursive: true });
   await mkdir(path.dirname(config.out), { recursive: true });

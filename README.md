@@ -10,7 +10,7 @@ Powershell:
 npm start yourScript.txt
 ```
 
-The output will be an .mp4 with the same name as the input script, unless specified otherwise via `--out`.
+The output video will be an .mp4 with the same name as the input script. List multiple script .txt files to create multiple videos in parallel (space-separated), limiting the number of simultaneous runs with `--jobs <n>`.
 
 ## Script
 

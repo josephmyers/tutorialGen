@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * tutorialgen CLI. Parses and validates the full argument surface, then hands a
- * resolved config to the pipeline.
+ * tutorialgen CLI. Parses and validates the full argument surface, then hands
+ * resolved configs to the pipeline.
  *
  * Imports stay dependency-light on purpose: nothing here should pull in the TTS
  * or ffmpeg stack, so `--help` and argument errors cost nothing. The pipeline
@@ -16,17 +16,17 @@ import { parsePositiveInt } from "./util/num.js";
 import { evenDimension } from "./video/format.js";
 
 interface RawOptions {
-  out?: string;
   width: string;
   height: string;
   actionTimeout: string;
+  jobs?: string;
   waitForInitialLoad: boolean;
   keepTemp?: boolean;
   headed?: boolean;
 }
 
-/** Default output: the script file with its extension swapped for .mp4. */
-function defaultOutPath(scriptPath: string): string {
+/** Output: the script file with its extension swapped for .mp4. */
+function outPath(scriptPath: string): string {
   const { dir, name } = path.parse(scriptPath);
   return path.join(dir, `${name}.mp4`);
 }
@@ -39,9 +39,9 @@ async function resolveConfig(scriptPath: string, opts: RawOptions): Promise<Pipe
     throw new Error(`Script file not found: ${resolvedScript}`);
   }
 
-  const out = opts.out ? path.resolve(opts.out) : defaultOutPath(resolvedScript);
+  const out = outPath(resolvedScript);
   if (out === resolvedScript) {
-    throw new Error(`--out would overwrite the script file: ${out}`);
+    throw new Error(`Output would overwrite the script file: ${out}`);
   }
 
   const rawWidth = parsePositiveInt(opts.width, "--width");
@@ -66,20 +66,40 @@ async function resolveConfig(scriptPath: string, opts: RawOptions): Promise<Pipe
   };
 }
 
-function log(message: string): void {
-  process.stderr.write(`${message}\n`);
+function makeLog(prefix: string): (message: string) => void {
+  return (message) => {
+    process.stderr.write(prefix ? `[${prefix}] ${message}\n` : `${message}\n`);
+  };
+}
+
+/** Runs `task` over every item, at most `limit` in flight at once. */
+async function mapWithLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await task(items[i] as T);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 async function main(): Promise<void> {
   const program = new Command();
   program
     .name("tutorialgen")
-    .description("Generate a narrated tutorial video from a script file.")
-    .argument("<script>", "path to the tutorial script file")
-    .option("--out <file>", "output mp4 path (default: the script file, as .mp4)")
+    .description("Generate narrated tutorial videos from script files.")
+    .argument("<scripts...>", "paths to tutorial script files (output: same path as .mp4)")
     .option("--width <px>", "viewport width", "1280")
     .option("--height <px>", "viewport height", "720")
     .option("--action-timeout <ms>", "per-action timeout in ms", "15000")
+    .option("--jobs <n>", "max scripts processed concurrently (default: all at once)")
     .option(
       "--no-wait-for-initial-load",
       "start recording as soon as the page load event fires, without waiting for it to settle",
@@ -87,11 +107,35 @@ async function main(): Promise<void> {
     .option("--keep-temp", "keep temp artifacts (take.webm, clips, timeline.json)")
     .option("--headed", "run with a visible browser window (debug only)")
     .addHelpText("after", `\n${scriptHelp()}`)
-    .action(async (scriptPath: string, opts: RawOptions) => {
-      const config = await resolveConfig(scriptPath, opts);
+    .action(async (scriptPaths: string[], opts: RawOptions) => {
+      const configs = await Promise.all(scriptPaths.map((s) => resolveConfig(s, opts)));
+      const jobsLimit = opts.jobs ? parsePositiveInt(opts.jobs, "--jobs") : configs.length;
+
       // Deferred so `--help` and argument errors never load the TTS/ffmpeg stack.
       const { runPipeline } = await import("./engine/pipeline.js");
-      await runPipeline(config, log);
+
+      const failures = await mapWithLimit(configs, jobsLimit, async (config) => {
+        const prefix = configs.length > 1 ? path.parse(config.scriptPath).name : "";
+        try {
+          await runPipeline(config, makeLog(prefix));
+          return undefined;
+        } catch (err) {
+          return err instanceof Error ? err.message : String(err);
+        }
+      });
+
+      if (configs.length > 1) {
+        process.stderr.write("\n");
+        for (const [config, failure] of configs.map((c, i) => [c, failures[i]] as const)) {
+          const name = path.parse(config.scriptPath).name;
+          process.stderr.write(failure ? `${name}: FAILED: ${failure}\n` : `${name}: ok\n`);
+        }
+      } else if (failures[0]) {
+        process.stderr.write(`\ntutorialgen: ${failures[0]}\n`);
+      }
+      if (failures.some(Boolean)) {
+        process.exitCode = 1;
+      }
     });
 
   await program.parseAsync();

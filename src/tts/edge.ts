@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rename } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
@@ -54,7 +54,14 @@ export class EdgeTts implements TtsEngine {
         await tts.setMetadata(this.voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
         // toFile writes to a random name inside the dir; move it onto the deterministic cache path.
         const { audioFilePath } = await tts.toFile(this.cacheDir, text);
-        await rename(audioFilePath, clipPath);
+        try {
+          await rename(audioFilePath, clipPath);
+        } catch (err) {
+          // A concurrent run synthesizing the same text can win the rename;
+          // on Windows renaming onto an existing file throws. Their clip is ours too.
+          if (!existsSync(clipPath)) throw err;
+          await rm(audioFilePath, { force: true });
+        }
         return;
       } catch (err) {
         lastErr = err;
