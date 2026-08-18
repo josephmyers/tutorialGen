@@ -15,9 +15,7 @@ import { Timeline } from "./timeline.js";
 
 export interface PipelineConfig {
   scriptPath: string;
-  url: string;
   out: string;
-  voice: string;
   width: number;
   height: number;
   actionTimeoutMs: number;
@@ -59,8 +57,9 @@ export async function runPipeline(
   config: PipelineConfig,
   log: (message: string) => void = () => {},
 ): Promise<void> {
-  // Parse first: an invalid script fails before any TTS or browser work.
-  const segments = await loadScript(config.scriptPath);
+  // Parse first: an invalid script fails before any TTS or browser work. The
+  // target URL and the voice come from the script's own metadata line.
+  const { url, voice, segments } = await loadScript(config.scriptPath);
   const narrationCount = segments.filter(isNarration).length;
   log(
     `Parsed ${segments.length} segments ` +
@@ -74,9 +73,10 @@ export async function runPipeline(
 
   let succeeded = false;
   try {
-    const clips = await synthesizeAll(segments, config.voice, log);
+    const clips = await synthesizeAll(segments, voice, log);
     const { takePath, placements, trimStartMs } = await recordTake(
       config,
+      url,
       videoDir,
       segments,
       clips,
@@ -133,6 +133,7 @@ async function synthesizeAll(
 /** Pass 2 — one continuous take, resolved against the zero it turns out to have. */
 async function recordTake(
   config: PipelineConfig,
+  url: string,
   videoDir: string,
   segments: readonly Segment[],
   clips: ReadonlyMap<number, TtsClip>,
@@ -156,11 +157,11 @@ async function recordTake(
       context: recording.context,
     });
 
-    log(`Opening ${config.url}...`);
+    log(`Opening ${url}...`);
     if (config.waitForInitialLoad) {
-      await runner.open(config.url);
+      await runner.open(url);
     } else {
-      await page.goto(config.url, { waitUntil: "load" });
+      await page.goto(url, { waitUntil: "load" });
     }
     const loadedAt = Date.now();
 

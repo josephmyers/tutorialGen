@@ -12,14 +12,11 @@ import path from "node:path";
 import { Command } from "commander";
 import type { PipelineConfig } from "./engine/pipeline.js";
 import { scriptHelp } from "./help.js";
-import { DEFAULT_VOICE } from "./tts/engine.js";
 import { parsePositiveInt } from "./util/num.js";
 import { evenDimension } from "./video/format.js";
 
 interface RawOptions {
-  url: string;
   out?: string;
-  voice: string;
   width: string;
   height: string;
   actionTimeout: string;
@@ -32,11 +29,6 @@ interface RawOptions {
 function defaultOutPath(scriptPath: string): string {
   const { dir, name } = path.parse(scriptPath);
   return path.join(dir, `${name}.mp4`);
-}
-
-/** `localhost:8888` is a natural thing to type, but page.goto needs a scheme. */
-function normalizeUrl(url: string): string {
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `http://${url}`;
 }
 
 async function resolveConfig(scriptPath: string, opts: RawOptions): Promise<PipelineConfig> {
@@ -64,9 +56,7 @@ async function resolveConfig(scriptPath: string, opts: RawOptions): Promise<Pipe
 
   return {
     scriptPath: resolvedScript,
-    url: normalizeUrl(opts.url),
     out,
-    voice: opts.voice,
     width,
     height,
     actionTimeoutMs: parsePositiveInt(opts.actionTimeout, "--action-timeout"),
@@ -86,9 +76,7 @@ async function main(): Promise<void> {
     .name("tutorialgen")
     .description("Generate a narrated tutorial video from a script file.")
     .argument("<script>", "path to the tutorial script file")
-    .requiredOption("--url <url>", "target page URL")
     .option("--out <file>", "output mp4 path (default: the script file, as .mp4)")
-    .option("--voice <name>", "Edge neural voice ShortName", DEFAULT_VOICE)
     .option("--width <px>", "viewport width", "1280")
     .option("--height <px>", "viewport height", "720")
     .option("--action-timeout <ms>", "per-action timeout in ms", "15000")

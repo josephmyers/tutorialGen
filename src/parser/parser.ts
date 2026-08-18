@@ -3,10 +3,14 @@ import { PHRASES, type CommandSpec, type TargetKind } from "./vocabulary.js";
 import {
   ScriptError,
   type ActionSegment,
+  type LoadedScript,
+  type ParsedScript,
+  type ScriptMetadata,
   type Segment,
   type ScriptErrorDetail,
 } from "./types.js";
 import { toPositiveInt } from "../util/num.js";
+import { DEFAULT_VOICE } from "../tts/engine.js";
 
 /** Modifier spellings accepted in a shortcut, normalized to Playwright's names. */
 const MODIFIERS = new Map<string, string>([
@@ -29,24 +33,57 @@ const NAMED_KEYS = [
 ];
 const KEYS_BY_LOWER = new Map(NAMED_KEYS.map((k) => [k.toLowerCase(), k]));
 
-export async function loadScript(scriptPath: string): Promise<Segment[]> {
+/**
+ * Read a script file and resolve everything a run needs from it. The URL lives
+ * in the script's own metadata line, so a missing one is a load-time error here
+ * — before any TTS or browser work starts.
+ */
+export async function loadScript(scriptPath: string): Promise<LoadedScript> {
   const source = await readFile(scriptPath, "utf8");
-  return parseScript(source, scriptPath);
+  const { metadata, segments } = parseScript(source, scriptPath);
+  if (metadata.url === undefined) {
+    throw new ScriptError(scriptPath, [
+      {
+        line: 1,
+        message:
+          "missing --url: the first line of a script must set the target page, " +
+          'e.g. `--url http://localhost:3000`',
+      },
+    ]);
+  }
+
+  if (metadata.voice) console.log(`Running with voice ${metadata.voice}...`);
+
+  return { url: metadata.url, voice: metadata.voice ?? DEFAULT_VOICE, segments };
 }
 
 /**
- * Split a script into ordered segments. Every problem found is collected and
- * thrown together as one ScriptError, so the author sees the whole list at load
- * time instead of one error per run (spec §6).
+ * Split a script into its metadata and its ordered segments. Every problem found
+ * is collected and thrown together as one ScriptError, so the author sees the
+ * whole list at load time instead of one error per run (spec §6).
+ *
+ * Metadata is optional at this level: `loadScript` is what requires a URL, which
+ * keeps this function a pure syntax check over any fragment of a script.
  */
-export function parseScript(source: string, scriptPath = "<script>"): Segment[] {
+export function parseScript(source: string, scriptPath = "<script>"): ParsedScript {
   const segments: Segment[] = [];
   const errors: ScriptErrorDetail[] = [];
+  let metadata: Partial<ScriptMetadata> = {};
+  let seenContent = false;
 
   source.split(/\r?\n/).forEach((raw, index) => {
     const line = index + 1;
     const text = raw.trim();
     if (text.length === 0) return;
+
+    // Only the first non-blank line can be metadata; anywhere else a leading
+    // `--` is ordinary narration.
+    if (!seenContent && text.startsWith("--")) {
+      seenContent = true;
+      metadata = parseMetadataLine(text, line, errors);
+      return;
+    }
+    seenContent = true;
 
     if (!text.startsWith("#")) {
       segments.push({ kind: "narration", line, text });
@@ -67,7 +104,62 @@ export function parseScript(source: string, scriptPath = "<script>"): Segment[] 
   if (segments.length === 0) {
     throw new Error(`Script contains no narration or action lines: ${scriptPath}`);
   }
-  return segments;
+  return { metadata, segments };
+}
+
+/** Metadata keys, with the field each one fills. */
+const METADATA_KEYS = new Map<string, keyof ScriptMetadata>([
+  ["--url", "url"],
+  ["--voice", "voice"],
+]);
+
+/** `localhost:8888` is a natural thing to write, but page.goto needs a scheme. */
+function normalizeUrl(url: string): string {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `http://${url}`;
+}
+
+/**
+ * Read the leading flag line into metadata, appending a detail to `errors` for
+ * every problem on the line rather than stopping at the first.
+ */
+function parseMetadataLine(
+  text: string,
+  line: number,
+  errors: ScriptErrorDetail[],
+): Partial<ScriptMetadata> {
+  const metadata: Partial<ScriptMetadata> = {};
+  const fail = (message: string) => errors.push({ line, message });
+  // Values may be quoted, so that a setting containing spaces stays one token.
+  const tokens = text.match(/"[^"]*"|\S+/g) ?? [];
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const key = tokens[i] ?? "";
+    const field = METADATA_KEYS.get(key.toLowerCase());
+    if (!field) {
+      fail(`unknown setting "${key}" (known: ${[...METADATA_KEYS.keys()].join(", ")})`);
+      continue;
+    }
+
+    const raw = tokens[i + 1];
+    if (raw === undefined || METADATA_KEYS.has(raw.toLowerCase())) {
+      fail(`${key} needs a value`);
+      continue;
+    }
+    i += 1;
+
+    if (metadata[field] !== undefined) {
+      fail(`${key} is set more than once`);
+      continue;
+    }
+    const value = raw.startsWith('"') ? raw.slice(1, -1) : raw;
+    if (value.length === 0) {
+      fail(`${key} needs a value`);
+      continue;
+    }
+    metadata[field] = field === "url" ? normalizeUrl(value) : value;
+  }
+
+  return metadata;
 }
 
 /** Returns the parsed action, or an error message describing what went wrong. */

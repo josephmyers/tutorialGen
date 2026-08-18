@@ -1,11 +1,28 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseScript } from "../src/parser/parser.js";
+import { loadScript, parseScript } from "../src/parser/parser.js";
 import { ScriptError } from "../src/parser/types.js";
 import { COMMANDS } from "../src/parser/vocabulary.js";
+import { DEFAULT_VOICE } from "../src/tts/engine.js";
 
-/** Parse a script expected to be valid. */
+/** Parse a script expected to be valid, keeping only its segments. */
 function parse(source: string) {
-  return parseScript(source, "test.txt");
+  return parseScript(source, "test.txt").segments;
+}
+
+/** Parse a script expected to be valid, keeping only its metadata. */
+function metadata(source: string) {
+  return parseScript(source, "test.txt").metadata;
+}
+
+/** Write a script to a temp file and load it the way the pipeline does. */
+async function load(source: string) {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tutorialgen-test-"));
+  const file = path.join(dir, "script.txt");
+  await writeFile(file, source, "utf8");
+  return loadScript(file);
 }
 
 /** Parse a script expected to fail, returning the collected error details. */
@@ -39,6 +56,73 @@ describe("line classification", () => {
 
   it("rejects a script with no segments", () => {
     expect(() => parse("\n   \n\n")).toThrow(/no narration or action lines/);
+  });
+});
+
+describe("metadata", () => {
+  it("reads url and voice from the first line", () => {
+    expect(metadata('--url http://localhost:3000 --voice en-GB-SoniaNeural\nHi.')).toEqual({
+      url: "http://localhost:3000",
+      voice: "en-GB-SoniaNeural",
+    });
+  });
+
+  it("adds a scheme to a bare host", () => {
+    expect(metadata("--url localhost:8888\nHi.").url).toBe("http://localhost:8888");
+  });
+
+  it("accepts a quoted value", () => {
+    expect(metadata('--voice "en-US-AriaNeural"\nHi.').voice).toBe("en-US-AriaNeural");
+  });
+
+  it("produces no segment, and leaves later line numbers intact", () => {
+    const segments = parse('--url example.com\n\n#Click "login"\nNarration.');
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ line: 3 });
+    expect(segments[1]).toMatchObject({ line: 4 });
+  });
+
+  it("treats a leading line that is not flag-shaped as narration", () => {
+    const segments = parse("Welcome to the demo.\n#Click \"login\"");
+    expect(segments[0]).toMatchObject({ kind: "narration", text: "Welcome to the demo." });
+    expect(metadata("Welcome to the demo.\n#Click \"login\"")).toEqual({});
+  });
+
+  it("only reads the first non-blank line as metadata", () => {
+    const segments = parse('--url example.com\n-- not a setting');
+    expect(segments[0]).toMatchObject({ kind: "narration", text: "-- not a setting" });
+  });
+
+  it("rejects an unknown setting", () => {
+    expect(parseErrors("--speed 2\nHi.")[0]).toMatchObject({
+      line: 1,
+      message: expect.stringContaining('unknown setting "--speed"'),
+    });
+  });
+
+  it("rejects a duplicated setting", () => {
+    expect(parseErrors("--url a.com --url b.com\nHi.")[0]?.message).toMatch(/set more than once/);
+  });
+
+  it("rejects a setting with no value", () => {
+    expect(parseErrors("--url\nHi.")[0]?.message).toMatch(/needs a value/);
+    expect(parseErrors("--url --voice x\nHi.")[0]?.message).toMatch(/needs a value/);
+  });
+
+  it("reports every problem on the line at once", () => {
+    expect(parseErrors("--speed 2 --loud 3\nHi.")).toHaveLength(2);
+  });
+});
+
+describe("loadScript", () => {
+  it("resolves the url and defaults the voice", async () => {
+    const loaded = await load('--url localhost:3000\nHi.\n#Click "login"');
+    expect(loaded).toMatchObject({ url: "http://localhost:3000", voice: DEFAULT_VOICE });
+    expect(loaded.segments).toHaveLength(2);
+  });
+
+  it("fails when the script sets no url", async () => {
+    await expect(load('Hi.\n#Click "login"')).rejects.toThrow(/missing --url/);
   });
 });
 

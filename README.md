@@ -1,20 +1,20 @@
 # TutorialGen
 
-A tool for generating videos. Supply an input script with narration and actions, paired with the target site url, to generate a video executing the instructions at that site.
+A tool for generating videos. Supply an input script with narration and actions to generate a video executing the instructions at that site.
 
 ## Basic Usage
 
 Powershell:
 
 ```bash
-npm start yourScript.txt -- --url "your-site"
+npm start yourScript.txt
 ```
 
 The output will be an .mp4 with the same name as the input script, unless specified otherwise via `--out`.
 
 ## Script
 
-The script is processed with the parser, which is designed to accept both narration and actions.
+The script is processed with the parser, which is designed to accept both narration and actions, with the top line as the metadata, which specifies the target site and any overriding voice setting.
 
 Action lines are signaled with the `#` tag and formed from a vocabulary set of verbs and their targets in quotes. Each action line is composed of one verb and one target. Use `--help` for more details on the available verbs. Targets, when they are elements and not amounts (e.g. `#Wait "2000"`), are found via `resolver.ts`. See that file for a full list of the prioritized resolution chain, but generally it's easiest for the target to be the element's `aria-label`, assuming it's unique.
 
@@ -23,6 +23,7 @@ All other lines are narrated by the TTS engine, Edge TTS. You can change the voi
 #### Example Script
 
 ```
+--url http://localhost:3000/login --voice en-US-AriaNeural
 Let's log in.
 #Click "username"
 #Type "[username]"

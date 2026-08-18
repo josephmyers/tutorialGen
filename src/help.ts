@@ -1,7 +1,9 @@
 import { COMMANDS } from "./parser/vocabulary.js";
+import { DEFAULT_VOICE } from "./tts/engine.js";
 
 /** The §3 example, verbatim — enough to see the shape of a script. */
-const EXAMPLE = `#Click "login" to expand the sign-in form
+const EXAMPLE = `--url http://localhost:3000/login --voice ${DEFAULT_VOICE}
+#Click "login" to expand the sign-in form
 Hello, and welcome to the training video. Today we'll show you how to log in.
 #Click "username"
 #Type "user1234"
@@ -26,6 +28,17 @@ export function scriptHelp(): string {
     "",
     "  Each action line is exactly one command and one quoted target. Any text",
     "  after the quoted target is an author comment and is ignored.",
+    "",
+    "SCRIPT METADATA",
+    "",
+    "  The first line is the metadata, written as flags:",
+    "",
+    "    --url http://localhost:3000 --voice en-GB-SoniaNeural",
+    "",
+    "    --url    target page URL (required; a bare host gets http:// added)",
+    `    --voice  optional Edge voice ShortName (default: ${DEFAULT_VOICE})`,
+    "",
+    "  For accepted voice values, see https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts#text-to-speech-voices.",
     "",
     "COMMANDS",
     "",

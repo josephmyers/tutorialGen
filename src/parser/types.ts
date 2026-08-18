@@ -52,6 +52,29 @@ export type ActionSegment =
   | WaitAction;
 export type Segment = NarrationSegment | ActionSegment;
 
+/**
+ * Per-script settings, written as a flag line at the top of the file (e.g.
+ * `--url http://localhost:3000 --voice en-US-AriaNeural`).
+ */
+export interface ScriptMetadata {
+  url: string;
+  voice: string;
+}
+
+/**
+ * The result of a syntax pass. Settings are partial here because a fragment of
+ * a script is still worth parsing; `loadScript` is what insists on a URL.
+ */
+export interface ParsedScript {
+  metadata: Partial<ScriptMetadata>;
+  segments: Segment[];
+}
+
+/** A script ready to run. */
+export interface LoadedScript extends ScriptMetadata {
+  segments: Segment[];
+}
+
 export function isAction(segment: Segment): segment is ActionSegment {
   return segment.kind === "action";
 }

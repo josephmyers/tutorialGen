@@ -12,7 +12,7 @@ export const VIEWPORT = { width: 1280, height: 720 };
 
 /** Parse a single script line into the action it produces. */
 export function action(scriptLine: string): ActionSegment {
-  const segment = parseScript(scriptLine)[0];
+  const segment = parseScript(scriptLine).segments[0];
   if (!segment || !isAction(segment)) {
     throw new Error(`"${scriptLine}" did not parse to an action`);
   }
