@@ -20,7 +20,6 @@ interface RawOptions {
   height: string;
   actionTimeout: string;
   jobs?: string;
-  waitForInitialLoad: boolean;
   keepTemp?: boolean;
   headed?: boolean;
 }
@@ -60,7 +59,6 @@ async function resolveConfig(scriptPath: string, opts: RawOptions): Promise<Pipe
     width,
     height,
     actionTimeoutMs: parsePositiveInt(opts.actionTimeout, "--action-timeout"),
-    waitForInitialLoad: opts.waitForInitialLoad,
     keepTemp: Boolean(opts.keepTemp),
     headed: Boolean(opts.headed),
   };
@@ -100,10 +98,6 @@ async function main(): Promise<void> {
     .option("--height <px>", "viewport height", "720")
     .option("--action-timeout <ms>", "per-action timeout in ms", "15000")
     .option("--jobs <n>", "max scripts processed concurrently (default: all at once)")
-    .option(
-      "--no-wait-for-initial-load",
-      "start recording as soon as the page load event fires, without waiting for it to settle",
-    )
     .option("--keep-temp", "keep temp artifacts (take.webm, clips, timeline.json)")
     .option("--headed", "run with a visible browser window (debug only)")
     .addHelpText("after", `\n${scriptHelp()}`)

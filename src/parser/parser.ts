@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { PHRASES, type CommandSpec, type TargetKind } from "./vocabulary.js";
+import { PHRASES, RECORD_KEYWORD, type CommandSpec, type TargetKind } from "./vocabulary.js";
 import {
   ScriptError,
+  isNarration,
+  isRecord,
   type ActionSegment,
   type LoadedScript,
   type ParsedScript,
@@ -33,6 +35,8 @@ const NAMED_KEYS = [
 ];
 const KEYS_BY_LOWER = new Map(NAMED_KEYS.map((k) => [k.toLowerCase(), k]));
 
+const RECORD_PHRASE = RECORD_KEYWORD.toLowerCase();
+
 /**
  * Read a script file and resolve everything a run needs from it. The URL lives
  * in the script's own metadata line, so a missing one is a load-time error here
@@ -54,7 +58,16 @@ export async function loadScript(scriptPath: string): Promise<LoadedScript> {
 
   if (metadata.voice) console.log(`Running with voice ${metadata.voice}...`);
 
-  return { url: metadata.url, voice: metadata.voice ?? DEFAULT_VOICE, segments };
+  const recordIndex = segments.findIndex(isRecord);
+  const segmentsToRun = segments.filter(
+    (segment, index) => !(isNarration(segment) && index < recordIndex),
+  );
+  const skippedNarrationCount = segments.length - segmentsToRun.length;
+  if (skippedNarrationCount > 0) {
+    console.log(`Skipping ${skippedNarrationCount} narration line(s) before #${RECORD_KEYWORD}.`);
+  }
+
+  return { url: metadata.url, voice: metadata.voice ?? DEFAULT_VOICE, segments: segmentsToRun };
 }
 
 /**
@@ -70,6 +83,7 @@ export function parseScript(source: string, scriptPath = "<script>"): ParsedScri
   const errors: ScriptErrorDetail[] = [];
   let metadata: Partial<ScriptMetadata> = {};
   let seenContent = false;
+  let recordLine: number | undefined;
 
   source.split(/\r?\n/).forEach((raw, index) => {
     const line = index + 1;
@@ -90,7 +104,23 @@ export function parseScript(source: string, scriptPath = "<script>"): ParsedScri
       return;
     }
 
-    const action = parseActionLine(text.slice(1).trim(), line);
+    const body = text.slice(1).trim();
+
+    // #Record takes no target, so anything after the keyword is ignored.
+    if (startsWithWord(body, RECORD_PHRASE)) {
+      if (recordLine === undefined) {
+        recordLine = line;
+        segments.push({ kind: "record", line });
+      } else {
+        errors.push({
+          line,
+          message: `#${RECORD_KEYWORD} appears more than once (first on line ${recordLine})`,
+        });
+      }
+      return;
+    }
+
+    const action = parseActionLine(body, line);
     if (typeof action === "string") {
       errors.push({ line, message: action });
     } else {
@@ -185,18 +215,24 @@ interface PhraseMatch {
 
 /**
  * Match the leading verb phrase, longest first so "double click" wins over
- * "click". The phrase must end at a word boundary, so "typewriter" is not read
- * as the `type` command.
+ * "click".
  */
 function matchPhrase(body: string): PhraseMatch | null {
-  const lower = body.toLowerCase();
   for (const { phrase, spec } of PHRASES) {
-    if (!lower.startsWith(phrase)) continue;
-    const next = body.charAt(phrase.length);
-    if (next !== "" && !/[\s"]/.test(next)) continue;
-    return { spec, rest: body.slice(phrase.length).trim() };
+    if (startsWithWord(body, phrase)) {
+      return { spec, rest: body.slice(phrase.length).trim() };
+    }
   }
   return null;
+}
+
+/**
+ * True when `text` begins with the lowercase `word` as a whole word.
+ */
+function startsWithWord(text: string, word: string): boolean {
+  if (!text.toLowerCase().startsWith(word)) return false;
+  const nextChar = text.charAt(word.length);
+  return nextChar === "" || /[\s"]/.test(nextChar);
 }
 
 /**

@@ -21,22 +21,26 @@ export class Timeline {
   }
 
   /**
-   * Resolve every mark against the take's zero, holding each clip back by
-   * `lagMs` (see NARRATION_LAG_MS — a feel adjustment, not a correction).
+   * Resolve every mark against the finished video's zero, holding each clip back
+   * by `lagMs` (see NARRATION_LAG_MS — a feel adjustment, not a correction).
+   *
+   * `zeroMs` is the wall-clock instant the finished video begins at — the
+   * `#Record` line, or page load when the script has none — not the take's first
+   * frame, which is trimmed away.
    *
    * A negative offset means a clip was marked before the video began, which
-   * cannot happen in a correct run — the queue does not start until the page is
-   * up, and the page cannot be up before it has painted. It means the measured
+   * cannot happen in a correct run: page load comes before the queue starts, and
+   * narration before `#Record` is dropped when the script is loaded. It means the
    * zero is wrong, so it throws rather than quietly clamping a clip to 0 and
    * shipping a video that is out of sync by an unknown amount.
    */
-  placements(videoZeroMs: number, lagMs = 0): NarrationPlacement[] {
+  placements(zeroMs: number, lagMs = 0): NarrationPlacement[] {
     return this.marks.map(({ clipPath, atMs }) => {
-      const startMs = atMs - videoZeroMs + lagMs;
+      const startMs = atMs - zeroMs + lagMs;
       if (startMs < 0) {
         throw new Error(
-          `Narration clip ${clipPath} lands ${-startMs}ms before the take starts. ` +
-            `The measured video zero (${videoZeroMs}) is wrong.`,
+          `Narration clip ${clipPath} lands ${-startMs}ms before the video starts. ` +
+            `The video's zero (${zeroMs}) is wrong.`,
         );
       }
       return { clipPath, startMs };

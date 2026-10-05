@@ -4,6 +4,7 @@ import { DEFAULT_VOICE } from "./tts/engine.js";
 /** The §3 example, verbatim — enough to see the shape of a script. */
 const EXAMPLE = `--url http://localhost:3000/login --voice ${DEFAULT_VOICE}
 #Click "login" to expand the sign-in form
+#Record
 Hello, and welcome to the training video. Today we'll show you how to log in.
 #Click "username"
 #Type "user1234"
@@ -27,7 +28,8 @@ export function scriptHelp(): string {
     "    Welcome to the demo.  narration line — spoken aloud",
     "",
     "  Each action line is exactly one command and one quoted target. Any text",
-    "  after the quoted target is an author comment and is ignored.",
+    "  after the quoted target is an author comment and is ignored. #Record is",
+    "  is optional and instructs the app when to start the video.",
     "",
     "SCRIPT METADATA",
     "",

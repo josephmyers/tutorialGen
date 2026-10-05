@@ -50,7 +50,13 @@ export type ActionSegment =
   | ScrollAction
   | DragAction
   | WaitAction;
-export type Segment = NarrationSegment | ActionSegment;
+
+export interface RecordSegment {
+  kind: "record";
+  line: number;
+}
+
+export type Segment = NarrationSegment | ActionSegment | RecordSegment;
 
 /**
  * Per-script settings, written as a flag line at the top of the file (e.g.
@@ -81,6 +87,10 @@ export function isAction(segment: Segment): segment is ActionSegment {
 
 export function isNarration(segment: Segment): segment is NarrationSegment {
   return segment.kind === "narration";
+}
+
+export function isRecord(segment: Segment): segment is RecordSegment {
+  return segment.kind === "record";
 }
 
 export interface ScriptErrorDetail {

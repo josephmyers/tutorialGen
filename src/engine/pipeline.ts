@@ -5,7 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { ActionRunner } from "../browser/actions.js";
 import { launchBrowser } from "../browser/driver.js";
 import { loadScript } from "../parser/parser.js";
-import { isNarration, type Segment } from "../parser/types.js";
+import { isAction, isNarration, type Segment } from "../parser/types.js";
 import { EdgeTts } from "../tts/edge.js";
 import type { TtsClip } from "../tts/engine.js";
 import { mux, type NarrationPlacement } from "../video/mux.js";
@@ -19,7 +19,6 @@ export interface PipelineConfig {
   width: number;
   height: number;
   actionTimeoutMs: number;
-  waitForInitialLoad: boolean;
   keepTemp: boolean;
   headed: boolean;
 }
@@ -60,10 +59,11 @@ export async function runPipeline(
   // Parse first: an invalid script fails before any TTS or browser work. The
   // target URL and the voice come from the script's own metadata line.
   const { url, voice, segments } = await loadScript(config.scriptPath);
+  const actionCount = segments.filter(isAction).length;
   const narrationCount = segments.filter(isNarration).length;
   log(
     `Parsed ${segments.length} segments ` +
-      `(${segments.length - narrationCount} actions, ${narrationCount} narration).`,
+      `(${actionCount} actions, ${narrationCount} narration).`,
   );
 
   const runDir = await mkdtemp(path.join(os.tmpdir(), "tutorialgen-"));
@@ -158,11 +158,7 @@ async function recordTake(
     });
 
     log(`Opening ${url}...`);
-    if (config.waitForInitialLoad) {
-      await runner.open(url);
-    } else {
-      await page.goto(url, { waitUntil: "load" });
-    }
+    await runner.open(url);
     const loadedAt = Date.now();
 
     // Marks are absolute wall-clock instants: video timestamp zero is not
@@ -171,38 +167,39 @@ async function recordTake(
 
     await runner.begin();
 
-    log("Recording...");
     const queueStartedAt = Date.now();
-    await runQueue({ segments, clips, runner, timeline, log });
+    const startedAt = await runQueue({ segments, clips, runner, timeline, log });
     const queueEndedAt = Date.now();
+
+    const intendedStartTime = startedAt ?? loadedAt;
 
     // TAIL_MS leaves the page still for well over the second Playwright's
     // recorder pads the end by, which is what makes the take's measured length
     // its real elapsed time — the property finish() recovers video zero from.
     await sleep(TAIL_MS);
 
-    const { path: takePath, durationMs: takeMs, videoZeroMs } = await recording.finish();
-    const closedAt = videoZeroMs + takeMs;
+    const { path: takePath, durationMs: takeMs, videoZeroMs: videoStartTime } = await recording.finish();
+    const closedAt = videoStartTime + takeMs;
 
-    // The head of the take — a blank frame, then the page loading — is cut in
-    // the mux, so `loadedAt` is the finished video's zero, not `videoZeroMs`.
-    // Resolving the marks against it is the whole of keeping narration in sync.
-    const trimStartMs = loadedAt - videoZeroMs;
+    // The time to trim off the front of the video. The delta between when the recording
+    // is intended to start vs when the recorder started recording.
+    const trimStartMs = intendedStartTime - videoStartTime;
 
-    const placements = timeline.placements(loadedAt, NARRATION_LAG_MS);
+    const placements = timeline.placements(intendedStartTime, NARRATION_LAG_MS);
     // Everything needed to line the numbers up against what the take shows.
-    // Each is a position in the take, in seconds — subtract `page load done`
+    // Each is a position in the take, in seconds — subtract `video starts`
     // from any of them to get the position in the trimmed output.
-    const at = (wallMs: number): string => `${((wallMs - videoZeroMs) / 1000).toFixed(3)}s`;
+    const at = (wallMs: number): string => `${((wallMs - videoStartTime) / 1000).toFixed(3)}s`;
     log(`Take: ${(takeMs / 1000).toFixed(3)}s of video.`);
     log(`  page created      ${at(pageCreatedAt)} (before the take began)`);
-    log(`  first frame       0.000s  <- video zero, ${closedAt - videoZeroMs}ms before close`);
-    log(`  page load done    ${at(loadedAt)}  <- trimmed off the front`);
+    log(`  first frame       0.000s  <- video zero, ${closedAt - videoStartTime}ms before close`);
+    log(`  page load done    ${at(loadedAt)}`);
     log(`  queue started     ${at(queueStartedAt)}`);
+    log(`  video starts      ${at(intendedStartTime)}  <- everything before is trimmed off`);
     log(`  queue ended       ${at(queueEndedAt)}`);
     log(`  recorder closed   ${at(closedAt)}`);
     for (const [i, placement] of placements.entries()) {
-      log(`  narration ${String(i + 1).padStart(2)}      ${at(loadedAt + placement.startMs)}`);
+      log(`  narration ${String(i + 1).padStart(2)}      ${at(intendedStartTime + placement.startMs)}`);
     }
 
     return { takePath, placements, trimStartMs };

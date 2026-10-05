@@ -7,10 +7,10 @@ A tool for generating videos. Supply an input script with narration and actions 
 Powershell:
 
 ```bash
-npm start yourScript.txt
+npm start yourScript_en.txt yourScript_fr.txt -- --jobs 1
 ```
 
-The output video will be an .mp4 with the same name as the input script. List multiple script .txt files to create multiple videos in parallel (space-separated), limiting the number of simultaneous runs with `--jobs <n>`.
+The output video will be an .mp4 with the same name as the input script. List multiple script .txt files to create multiple videos in parallel (space-separated), optionally limiting the number of simultaneous runs with `--jobs <n>`.
 
 ## Script
 
@@ -18,7 +18,9 @@ The script is processed with the parser, which is designed to accept both narrat
 
 Action lines are signaled with the `#` tag and formed from a vocabulary set of verbs and their targets in quotes. Each action line is composed of one verb and one target. Use `--help` for more details on the available verbs. Targets, when they are elements and not amounts (e.g. `#Wait "2000"`), are found via `resolver.ts`. See that file for a full list of the prioritized resolution chain, but generally it's easiest for the target to be the element's `aria-label`, assuming it's unique.
 
-All other lines are narrated by the TTS engine, Edge TTS. You can change the voice with `--voice`.
+The `#Record` command is a special line that can be used to delay the recording, if desired.
+
+All other lines are narrated by the TTS engine, Edge TTS. You can change the voice with `--voice`. For accepted voice values, see https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts#text-to-speech-voices.
 
 #### Example Script
 
@@ -30,6 +32,7 @@ Let's log in.
 #Click "password"
 #Enter "[password]"
 #Select "login"
+#Record
 This is the Home page. Let's select a team.
 #Click "Default team"
 Let's select a project.

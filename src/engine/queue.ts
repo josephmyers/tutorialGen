@@ -18,11 +18,21 @@ export interface QueueOptions {
  * complete (spec §4). Nothing overlaps, so there is no synchronization problem
  * to solve — a narration segment holds the page still for exactly its clip's
  * length, and the same duration drives both that hold and the later placement.
+ *
+ * Returns the time the `#Record` line was reached — where the
+ * finished video begins — or undefined when the script has none.
  */
-export async function runQueue(opts: QueueOptions): Promise<void> {
+export async function runQueue(opts: QueueOptions): Promise<number | undefined> {
   const { segments, clips, runner, timeline, log } = opts;
+  let recordedAt: number | undefined;
 
   for (const segment of segments) {
+    if (segment.kind === "record") {
+      recordedAt = Date.now();
+      log?.(`--- Recording started ---`);
+      continue;
+    }
+
     if (segment.kind === "action") {
       log?.(`  line ${segment.line}: ${segment.command} "${segment.target}"`);
       await runner.run(segment);
@@ -39,4 +49,6 @@ export async function runQueue(opts: QueueOptions): Promise<void> {
     log?.(`  line ${segment.line}: narration (${clip.holdMs}ms hold)`);
     await sleep(clip.holdMs);
   }
+
+  return recordedAt;
 }

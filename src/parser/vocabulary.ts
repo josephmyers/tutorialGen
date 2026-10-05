@@ -87,6 +87,8 @@ export const COMMANDS: readonly CommandSpec[] = [
   },
 ];
 
+export const RECORD_KEYWORD = "Record";
+
 interface Phrase {
   phrase: string;
   spec: CommandSpec;
