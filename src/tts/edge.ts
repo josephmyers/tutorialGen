@@ -11,7 +11,7 @@ import { truncate } from "../util/text.js";
 export interface EdgeTtsOptions {
   /** Edge neural voice ShortName (e.g. en-US-AriaNeural). */
   voice?: string;
-  /** Directory where clips are synthesized and cached. */
+  /** Root directory where clips are cached, in one subfolder per voice. */
   cacheDir: string;
   /** Per-clip synthesis attempts (unofficial WebSocket endpoint). */
   retries?: number;
@@ -27,7 +27,7 @@ export class EdgeTts implements TtsEngine {
 
   constructor(opts: EdgeTtsOptions) {
     this.voice = opts.voice ?? DEFAULT_VOICE;
-    this.cacheDir = opts.cacheDir;
+    this.cacheDir = path.join(opts.cacheDir, this.voice);
     this.retries = opts.retries ?? 3;
   }
 
@@ -52,7 +52,6 @@ export class EdgeTts implements TtsEngine {
       const tts = new MsEdgeTTS();
       try {
         await tts.setMetadata(this.voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-        // toFile writes to a random name inside the dir; move it onto the deterministic cache path.
         const { audioFilePath } = await tts.toFile(this.cacheDir, text);
         try {
           await rename(audioFilePath, clipPath);
